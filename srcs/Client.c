@@ -1,4 +1,4 @@
-// Client side C/C++ program to demonstrate Socket programming
+// Client side C/C++ program to demonstrate Socket programming.. My implemnetation of the server is for a web-browser...
 #include <stdio.h>
 #include <sys/socket.h>
 #include <stdlib.h>
