@@ -179,7 +179,7 @@ int main (int argc, char **argv)
                if (new_client == -1) continue;
                if(new_client > highest_fd) highest_fd = new_client;
                 fixed_fd[new_client] = global_fd++;
-                msg[new_client] = NULL;  // wrong
+                msg[new_client] = NULL;  // be careful
                 FD_SET(new_client, &master_set);
                 sprintf(send_buff, "server: client %d just arrived\n", fixed_fd[new_client]);
                 notify_all(new_client, send_buff);
