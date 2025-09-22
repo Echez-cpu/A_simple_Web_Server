@@ -1,23 +1,22 @@
-#include <netinet/in.h>
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include <netdb.h>
 #include <sys/socket.h>
-#include <sys/select.h> //important
+#include <netinet/in.h>
+#include <sys/select.h>
+#include <stdlib.h>
+#include <stdio.h>
 
-int fixed_fd[65536]; // change to id
-char *msg[65536];
 
 
+int ids[65534];
+char *msg[65534];
+
+int highest_fd = 0, global_id = 0;
+fd_set read_me, write_me, master_set;
 
 char send_buff[1024], recv_buff[1024];
-
-int highest_fd = 0, global_fd = 0;
-
-fd_set write_me, read_me, master_set;
 
 void error_msg(char *str)
 {
@@ -25,10 +24,10 @@ void error_msg(char *str)
     {
         write(2, str, strlen(str));
     }
-
+    
     else
     {
-        write(2, "Fatal error", 11);
+       write(2, "Fatal error", 11);  
     }
 
     write(2, "\n", 1);
@@ -36,21 +35,20 @@ void error_msg(char *str)
     exit(1);
 }
 
+
 void notify_all(int except, char *str)
 {
-     for (int fd = 0; fd <= highest_fd; fd++)
-     {
-         if(FD_ISSET(fd, &write_me) && fd != except)
-         {
-            if(send(fd, str, strlen(str), 0) == -1)
+    for(int fd = 0; fd <= highest_fd; fd++)
+    {
+        if(FD_ISSET(fd, &write_me) && fd != except)
+        {
+            if (send(fd, str, strlen(str), 0) == -1)
             {
                 error_msg(NULL);
             }
-               
-         }
-     }
+        }
+    }
 }
-
 
 char *str_join(char *buf, char *add)
 {
@@ -101,53 +99,51 @@ int extract_message(char **buf, char **msg)
 }
 
 
-void	send_msg(int fd)
+void send_message(int fd)
 {
-	char *msgs;
+    char *msgs;
 
-	while (extract_message(&(msg[fd]), &msgs))
-	{
-		sprintf(send_buff, "client %d: ", fixed_fd[fd]);
-		notify_all(fd, send_buff);
-		notify_all(fd, msgs);
-		free(msgs);
-	}
+    while(extract_message(&(msg[fd]), &msgs))
+    {
+        sprintf(send_buff, "client %d: ", ids[fd]);
+        notify_all(fd, send_buff);
+        notify_all(fd, msgs);
+        free(msgs);
+    }
 }
 
 
 
-int main (int argc, char **argv)
+
+int main(int argc, char **argv)
 {
-    
-    if (argc != 2)
+    if(argc != 2)
     {
         error_msg("Wrong number of arguments");
     }
-    
-    
+
     struct sockaddr_in server_add, cli;
 
-    socklen_t  len;
+    socklen_t       len;
 
     int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
 
-    if (sock_fd == -1)
+    if(sock_fd == -1)
     {
         error_msg(NULL);
     }
-
+        
     highest_fd = sock_fd;
 
-     FD_ZERO(&master_set);
-     FD_SET(sock_fd, &master_set);
-     bzero(&server_add, sizeof(server_add));
-     bzero(&cli, sizeof(cli));
+    FD_ZERO(&master_set);
+    FD_SET(sock_fd, &master_set);
+    bzero(&server_add, sizeof(server_add));
+    bzero(&cli, sizeof(cli));
 
-     // assign IP, PORT 
+    // assign IP, PORT 
 	server_add.sin_family = AF_INET; 
 	server_add.sin_addr.s_addr = htonl(2130706433); //127.0.0.1
 	server_add.sin_port = htons(atoi(argv[1])); 
-
 
     if (bind(sock_fd, (const struct sockaddr *)&server_add, sizeof(server_add)) == -1 || listen(sock_fd, 10) == -1)
     {
@@ -155,33 +151,36 @@ int main (int argc, char **argv)
     }
 
 
-
     while(1)
     {
-        write_me = read_me = master_set;
+        read_me = write_me = master_set;
 
         if (select(highest_fd + 1, &read_me, &write_me, NULL, NULL) == -1)
         {
             error_msg(NULL);
         }
 
-        for (int fd = 0; fd <= highest_fd; fd++)
+        for(int fd = 0; fd <= highest_fd; fd++)
         {
             if(!FD_ISSET(fd, &read_me))
             {
                 continue;
             }
 
-            if (sock_fd == fd)
+            if(fd == sock_fd)
             {
                 len = sizeof(cli);
-               int new_client = accept(sock_fd, (struct sockaddr *)&cli, &len);
-               if (new_client == -1) continue;
-               if(new_client > highest_fd) highest_fd = new_client;
-                fixed_fd[new_client] = global_fd++;
-                msg[new_client] = NULL;  // be careful
+                int new_client = accept(sock_fd, (struct sockaddr *)&cli, &len);
+
+                if(new_client == -1) continue;
+
+                if(new_client > highest_fd) highest_fd = new_client;
+
+                ids[new_client] = global_id++;
+                msg[new_client] = NULL;
                 FD_SET(new_client, &master_set);
-                sprintf(send_buff, "server: client %d just arrived\n", fixed_fd[new_client]);
+
+                sprintf(send_buff, "server: client %d just arrived\n", ids[new_client]);
                 notify_all(new_client, send_buff);
                 break;
 
@@ -189,27 +188,26 @@ int main (int argc, char **argv)
 
             else
             {
-                int bytes_recv = recv(fd, recv_buff, 1000, 0);
+                int bytes_read = recv(fd, recv_buff, 1000, 0);
 
-                if(bytes_recv <= 0)
+                if (bytes_read <= 0)
                 {
-                    sprintf(send_buff, "server: client %d just left\n", fixed_fd[fd]);
+                    sprintf(send_buff, "server: client %d just left\n", ids[fd]);
                     notify_all(fd, send_buff);
                     FD_CLR(fd, &master_set);
                     free(msg[fd]);
                     close(fd);
                     break;
-
                 }
 
-                recv_buff[bytes_recv] = '\0';
+                recv_buff[bytes_read ] = '\0';
 
                 msg[fd] = str_join(msg[fd], recv_buff);
 
-                send_msg(fd);
-            }
+                send_message(fd);
 
+            }
         }
     }
-	return(0);
+
 }
